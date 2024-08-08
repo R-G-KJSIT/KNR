@@ -1,0 +1,6 @@
+streamlit
+groq
+requests
+io
+python-docx
+onedrivesdk
