@@ -131,7 +131,7 @@ point_input = st.text_input("Enter a point", "")
 if st.button("Add Point"):
     if point_input:
         st.session_state.points.append(point_input)
-        st.experimental_rerun()  # Refresh the app to display updated points
+        st.rerun()  # Refresh the app to display updated points
     else:
         st.warning("Please enter a point before adding.")
 
