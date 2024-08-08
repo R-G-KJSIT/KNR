@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 from docx import Document
+from docx.shared import Pt
+from docx.oxml.ns import qn
 from io import BytesIO
 from datetime import datetime
 from groq import Groq
@@ -57,11 +59,27 @@ def call_groq_api(points):
         st.error(f"Error calling Groq API: {e}")
         return ""
 
-# Function to create DOCX with title
-def create_docx(title, paragraph):
+# Function to create DOCX with title and paragraph formatting
+def create_docx(title, conducted_by, paragraph):
     doc = Document()
-    doc.add_heading(title, level=1)  # Add the title as a heading
-    doc.add_paragraph(paragraph)  # Add the generated paragraph
+    
+    # Add title
+    heading = doc.add_heading(title, level=1)
+    heading.alignment = 1  # Center alignment
+    run = heading.runs[0]
+    run.font.name = 'Segoe UI'
+    run.font.size = Pt(14)
+    
+    # Add conducted by line
+    doc.add_paragraph(f"Conducted by: {conducted_by}", style='Normal')
+    
+    # Add paragraph
+    p = doc.add_paragraph(paragraph)
+    p.alignment = 3  # Justify alignment
+    for run in p.runs:
+        run.font.name = 'Segoe UI'
+        run.font.size = Pt(12)
+    
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
@@ -97,6 +115,9 @@ domain = st.selectbox(
     ["AI-ML", "DataScience and Analytics", "Cloud Native", "Web Development", "AR/VR", "IoT", "Blockchain", "Cybersecurity"]
 )
 
+# Conducted By Input
+conducted_by = st.text_input("Conducted By")
+
 # Format the date and domain for the file name
 formatted_date = event_date.strftime("%Y-%m-%d")
 domain_slug = domain.replace(" ", "_")  # Replace spaces with underscores
@@ -110,7 +131,7 @@ point_input = st.text_input("Enter a point", "")
 if st.button("Add Point"):
     if point_input:
         st.session_state.points.append(point_input)
-        st.rerun()  # Refresh the app to display updated points
+        st.experimental_rerun()  # Refresh the app to display updated points
     else:
         st.warning("Please enter a point before adding.")
 
@@ -123,12 +144,14 @@ if st.session_state.points:
 if st.button("Generate Report"):
     if not st.session_state.points:
         st.warning("Please add at least one point.")
+    elif not conducted_by:
+        st.warning("Please enter the name of the person who conducted the event.")
     else:
         # Call Groq API
         paragraph = call_groq_api(st.session_state.points)
         if paragraph:
-            # Create DOCX with title
-            docx_buffer = create_docx(title, paragraph)
+            # Create DOCX with title, conducted_by, and paragraph
+            docx_buffer = create_docx(title, conducted_by, paragraph)
             
             # Create a download button
             st.download_button(
