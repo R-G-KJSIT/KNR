@@ -100,7 +100,7 @@ def upload_to_onedrive(file_buffer, filename):
         st.error(f"Error uploading file to OneDrive: {response.status_code} - {response.text}")
 
 # Streamlit UI
-st.title("Event Report Generator")
+st.title("Knowhow Workshop Reporting Software")
 
 # Use session state to persist points
 if 'points' not in st.session_state:
