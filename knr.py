@@ -35,7 +35,8 @@ GRAPH_API_BASE_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/Documents/
 # Function to call Groq API using the Groq module
 def call_groq_api(points):
     prompt = ("I am about to give you a few points that sum up an event that takes place, "
-              "your task is to take those points and make a more detailed paragraph and only print the paragraph and absolutely nothing else")
+              "your task is to take those points and make a more detailed paragraph and only print the paragraph and absolutely nothing else."
+              "Keep in mind you need to report in 3rd person (i.e 'The event conducted today comprised of the following things 'yada yada yada. You don't need to explain any concept, just elaborate what was done)")
     
     # Create the message for the chat completion
     messages = [
@@ -56,10 +57,11 @@ def call_groq_api(points):
         st.error(f"Error calling Groq API: {e}")
         return ""
 
-# Function to create DOCX
-def create_docx(paragraph):
+# Function to create DOCX with title
+def create_docx(title, paragraph):
     doc = Document()
-    doc.add_paragraph(paragraph)
+    doc.add_heading(title, level=1)  # Add the title as a heading
+    doc.add_paragraph(paragraph)  # Add the generated paragraph
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
@@ -99,6 +101,7 @@ domain = st.selectbox(
 formatted_date = event_date.strftime("%Y-%m-%d")
 domain_slug = domain.replace(" ", "_")  # Replace spaces with underscores
 filename = f"report_{formatted_date}_{domain_slug}.docx"
+title = f"Knowhow {domain} workshop {formatted_date}"  # Title format
 
 # Brief Points Input
 st.subheader("Brief Points")
@@ -124,7 +127,18 @@ if st.button("Generate Report"):
         # Call Groq API
         paragraph = call_groq_api(st.session_state.points)
         if paragraph:
-            # Create DOCX
-            docx_buffer = create_docx(paragraph)
+            # Create DOCX with title
+            docx_buffer = create_docx(title, paragraph)
+            
+            # Create a download button
+            st.download_button(
+                label="Download Report",
+                data=docx_buffer,
+                file_name=filename,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+            
             # Upload to OneDrive with dynamic filename
+            # Since upload_to_onedrive needs a file buffer, we need to reset buffer's position
+            docx_buffer.seek(0)
             upload_to_onedrive(docx_buffer, filename)
