@@ -3,9 +3,12 @@ import requests
 from docx import Document
 from docx.shared import Pt
 from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 from io import BytesIO
 from datetime import datetime
+from PIL import Image
 from groq import Groq
+import re
 
 # Constants
 GROQ_API_KEY = st.secrets["GROQ_API_KEY"]  # Replace with your actual API key
@@ -36,33 +39,126 @@ GRAPH_API_BASE_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/Documents/
 
 # Function to call Groq API using the Groq module
 def call_groq_api(points):
-    prompt = ("I am about to give you a few points that sum up an event that takes place, "
-              "your task is to take those points and make a more detailed paragraph and only print the paragraph and absolutely nothing else."
-              "Keep in mind you need to report in 3rd person (i.e 'The event conducted today comprised of the following things 'yada yada yada. You don't need to explain any concept, just elaborate what was done)")
-    
-    # Create the message for the chat completion
+    prompt = (
+        "I am about to give you a few points that summarize an event. "
+        "Please format these points into a more professional style. "
+        "Remember this is for a report so whatever points are given, make sure you write it in a way that displays what was taught/done and not what the points mean (Like write something along the lines of '_____ was conducted where ________ was taught and ____ was performed')"
+        "Provide them in a bullet-point format, separated by ';'. "
+        "Make sure the words you use are extremely simple but professional. Don't use any complex words and don't make 1 point use longer than 10 words (Make sure it STRICTLY ENDS BEFORE 10 Words. Not a singlge word more)"
+        "If any text should be bold, enclose it in '**'. "
+        "Output nothing other than the refined points in the specified format. And I mean ABSOLUTELY NOTHING, not even things like 'Here's the .....'"
+        "Make sure you make a long sentence of atleast 10 words per point"
+        "Points: "
+    )
     messages = [
         {
             "role": "user",
-            "content": f"{prompt} Points: {', '.join(points)}"
+            "content": f"{prompt} {', '.join(points)}"
         }
     ]
     
-    # Request completion from Groq
     try:
         chat_completion = client.chat.completions.create(
             messages=messages,
-            model="llama3-8b-8192"
+            model="llama3-70b-8192"
         )
-        return chat_completion.choices[0].message.content
+        response = chat_completion.choices[0].message.content.strip()
+        return response
     except Exception as e:
         st.error(f"Error calling Groq API: {e}")
         return ""
 
-# Function to create DOCX with title and paragraph formatting
-def create_docx(title, conducted_by, paragraph):
+# Function to create DOCX with title, conducted_by, bullet points, and venue
+def create_docx(title, conducted_by, points, venue):
     doc = Document()
     
+    # Add logos to header
+    header = doc.sections[0].header
+    
+    # Helper function to add images to the header
+    def add_image_to_header(image_path, width=Pt(50)):
+        try:
+            with Image.open(image_path) as img:
+                image_stream = BytesIO()
+                img.save(image_stream, format='PNG' if image_path.endswith('.png') else 'JPEG')
+                header_paragraph = header.add_paragraph()
+                header_paragraph.add_run().add_picture(image_stream, width=width)
+        except Exception as e:
+            st.error(f"Error adding image to document: {e}")
+
+    # Add the first logo
+    add_image_to_header("collegelogo.png", width=Pt(50))
+    
+    # Add space between the images
+    header.add_paragraph()  # Add a blank paragraph to create space
+    
+    # Add the second logo
+    add_image_to_header("logo.jpg", width=Pt(50))
+
+    # Apply default font settings
+    def set_font(run):
+        run.font.name = 'Segoe UI'
+        run.font.size = Pt(14)
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), 'Segoe UI')
+        run._element.rPr.rFonts.set(qn('w:ascii'), 'Segoe UI')
+        run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Segoe UI')
+
+    # Add title
+    heading = doc.add_heading(title, level=1)
+    heading.alignment = 1  # Center alignment
+    for run in heading.runs:
+        set_font(run)
+    
+    # Add date and venue
+    date_venue_paragraph = doc.add_paragraph()
+    date_venue_paragraph.add_run(f"Date: {datetime.now().strftime('%Y-%m-%d')}\n")
+    date_venue_paragraph.add_run(f"Venue: {venue}\n")
+    date_venue_paragraph.alignment = 0  # Left alignment
+    for run in date_venue_paragraph.runs:
+        set_font(run)
+
+    # Add conducted by line
+    conducted_by_paragraph = doc.add_paragraph(f"Conducted by: {conducted_by}", style='Normal')
+    for run in conducted_by_paragraph.runs:
+        set_font(run)
+
+    # Parse and add bullet points
+    if points:
+        doc.add_paragraph("Event Highlights:", style='Normal')
+        points_list = points.split(';')
+        for point in points_list:
+            point = point.strip()
+            if point:
+                p = doc.add_paragraph(style='ListBullet')
+                runs = re.split(r'(\*\*.*?\*\*)', point)  # Split based on bold markers
+                for run in runs:
+                    if run.startswith('**') and run.endswith('**'):
+                        bold_run = p.add_run(run[2:-2])
+                        bold_run.bold = True
+                        set_font(bold_run)
+                    else:
+                        regular_run = p.add_run(run)
+                        set_font(regular_run)
+    
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+    doc = Document()
+    
+    # Add logo to header
+    header = doc.sections[0].header
+    logo_path = "logo.jpg"  # Ensure this path is correct
+    try:
+        logo = Image.open(logo_path)
+        logo_stream = BytesIO()
+        logo.save(logo_stream, format='JPEG')
+        header_paragraph = header.add_paragraph()
+        header_paragraph.add_run().add_picture(logo_stream, width=Pt(50))  # Adjust size as needed
+    except Exception as e:
+        st.error(f"Error adding logo to document: {e}")
+
     # Add title
     heading = doc.add_heading(title, level=1)
     heading.alignment = 1  # Center alignment
@@ -70,15 +166,29 @@ def create_docx(title, conducted_by, paragraph):
     run.font.name = 'Segoe UI'
     run.font.size = Pt(14)
     
+    # Add date and venue
+    date_venue_paragraph = doc.add_paragraph()
+    date_venue_paragraph.add_run(f"Date: {datetime.now().strftime('%Y-%m-%d')}\n")
+    date_venue_paragraph.add_run(f"Venue: {venue}\n")
+    date_venue_paragraph.alignment = 0  # Left alignment
+
     # Add conducted by line
     doc.add_paragraph(f"Conducted by: {conducted_by}", style='Normal')
-    
-    # Add paragraph
-    p = doc.add_paragraph(paragraph)
-    p.alignment = 3  # Justify alignment
-    for run in p.runs:
-        run.font.name = 'Segoe UI'
-        run.font.size = Pt(12)
+
+    # Parse and add bullet points
+    if points:
+        doc.add_paragraph("Event Highlights:", style='Normal')
+        points_list = points.split(';')
+        for point in points_list:
+            point = point.strip()
+            if point:
+                p = doc.add_paragraph(style='ListBullet')
+                runs = re.split(r'(\*\*.*?\*\*)', point)  # Split based on bold markers
+                for run in runs:
+                    if run.startswith('**') and run.endswith('**'):
+                        p.add_run(run[2:-2]).bold = True
+                    else:
+                        p.add_run(run)
     
     buffer = BytesIO()
     doc.save(buffer)
@@ -118,6 +228,9 @@ domain = st.selectbox(
 # Conducted By Input
 conducted_by = st.text_input("Conducted By")
 
+# Venue Input
+venue = st.text_input("Venue")
+
 # Format the date and domain for the file name
 formatted_date = event_date.strftime("%Y-%m-%d")
 domain_slug = domain.replace(" ", "_")  # Replace spaces with underscores
@@ -142,26 +255,34 @@ if st.session_state.points:
 
 # Generate Report Button
 if st.button("Generate Report"):
-    if not st.session_state.points:
+    if len(st.session_state.points) == 0:
         st.warning("Please add at least one point.")
     elif not conducted_by:
         st.warning("Please enter the name of the person who conducted the event.")
+    elif not venue:
+        st.warning("Please enter the venue.")
     else:
-        # Call Groq API
-        paragraph = call_groq_api(st.session_state.points)
-        if paragraph:
-            # Create DOCX with title, conducted_by, and paragraph
-            docx_buffer = create_docx(title, conducted_by, paragraph)
-            
-            # Create a download button
-            st.download_button(
-                label="Download Report",
-                data=docx_buffer,
-                file_name=filename,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
-            
-            # Upload to OneDrive with dynamic filename
-            # Since upload_to_onedrive needs a file buffer, we need to reset buffer's position
-            docx_buffer.seek(0)
-            upload_to_onedrive(docx_buffer, filename)
+        # Call Groq API to format the points
+        raw_points = call_groq_api(st.session_state.points)
+        
+        # Ensure at least 5 points
+        points_list = raw_points.split(';')
+        if len(points_list) < 5:
+            additional_points = ["Additional point placeholder." for _ in range(5 - len(points_list))]
+            points_list.extend(additional_points)
+        
+        # Create DOCX with title, conducted_by, formatted points, and venue
+        docx_buffer = create_docx(title, conducted_by, ';'.join(points_list), venue)
+        
+        # Create a download button
+        st.download_button(
+            label="Download Report",
+            data=docx_buffer,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        
+        # Upload to OneDrive with dynamic filename
+        # Since upload_to_onedrive needs a file buffer, we need to reset buffer's position
+        docx_buffer.seek(0)
+        upload_to_onedrive(docx_buffer, filename)
